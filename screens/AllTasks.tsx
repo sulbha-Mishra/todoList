@@ -9,7 +9,7 @@
  * - Filter tasks by status (all, pending, completed)
  */
 
-import React, {useEffect, useState} from 'react';
+import React, {useEffect, useMemo, useState} from 'react';
 import {
   View,
   Text,
@@ -18,6 +18,7 @@ import {
   TextInput,
   Modal,
   StyleSheet,
+  ToastAndroid,
 } from 'react-native';
 import {useTodos, Todo} from '../hooks/useTodos';
 import NetInfo from '@react-native-community/netinfo';
@@ -27,6 +28,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import {widthRatio} from '../utils/helper/dimensions';
 import colors from '../theme/colors';
 
+const filterArr = ['All', 'Pending', 'Completed'];
 const AllTasks: React.FC = () => {
   const {todos, isLoading, addTodo, updateTodo, deleteTodo, toggleComplete} =
     useTodos();
@@ -40,7 +42,7 @@ const AllTasks: React.FC = () => {
     description: string;
     completed: boolean;
   }>({id: null, title: '', description: '', completed: false});
-  const [filter, setFilter] = useState<'all' | 'pending' | 'completed'>('all');
+  const [filter, setFilter] = useState<'All' | 'Pending' | 'Completed'>('All');
   const [isOnline, setIsOnline] = useState(true);
   const [isSyncing, setIsSyncing] = useState(false);
 
@@ -67,18 +69,18 @@ const AllTasks: React.FC = () => {
    * Handles adding or updating a task.
    */
   const handleAddOrEditTask = () => {
-    if (taskData.title.trim() && taskData.description.trim()) {
+    if (taskData.title.trim()) {
       taskData.id
         ? updateTodo.mutate({
             id: taskData.id,
             title: taskData.title,
-            description: taskData.description,
+            description: taskData.description || '',
             completed: taskData.completed,
           })
         : addTodo.mutate({
             id: Date.now(),
             title: taskData.title,
-            description: taskData.description,
+            description: taskData.description || '',
             completed: false,
           });
       resetModal();
@@ -124,13 +126,17 @@ const AllTasks: React.FC = () => {
   /**
    * Filters the displayed tasks based on the selected filter type.
    */
-  const filteredTodos = todos?.filter(todo =>
-    filter === 'pending'
-      ? !todo.completed
-      : filter === 'completed'
-      ? todo.completed
-      : true,
-  );
+  const filteredTodos = useMemo(() => {
+    if (!todos) {
+      return [];
+    }
+    if (filter === 'All') {
+      return todos;
+    }
+    return todos.filter(todo =>
+      filter === 'Pending' ? !todo.completed : todo.completed,
+    );
+  }, [todos, filter]);
 
   if (isLoading || isSyncing) {
     return <SyncIndicator message="Syncing with server..." />;
@@ -157,9 +163,10 @@ const AllTasks: React.FC = () => {
       </View>
       {/* Filter Buttons */}
       <View style={styles.filterContainer}>
-        {['all', 'pending', 'completed'].map(status => (
+        {filterArr.map(status => (
           <Pressable
             key={status}
+            hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}
             style={({pressed}) => [
               styles.filterButton,
               filter === status && styles.activeFilter,
@@ -171,7 +178,7 @@ const AllTasks: React.FC = () => {
                 styles.filterText,
                 filter !== status && styles.activeFilterText,
               ]}>
-              {status.charAt(0).toUpperCase() + status.slice(1)}
+              {status}
             </Text>
           </Pressable>
         ))}
@@ -188,7 +195,14 @@ const AllTasks: React.FC = () => {
                 item.completed && styles.checked,
                 pressed && styles.pressedStyle,
               ]}
-              onPress={() => toggleComplete(item)}>
+              hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}
+              onPress={() => {
+                toggleComplete(item);
+                ToastAndroid.show(
+                  `Marked as ${item.completed ? 'Pending' : 'Completed'} `,
+                  ToastAndroid.BOTTOM,
+                );
+              }}>
               {item.completed && <Text style={styles.checkmark}>✔</Text>}
             </Pressable>
             <View style={styles.taskContainer}>
@@ -202,11 +216,13 @@ const AllTasks: React.FC = () => {
             <View style={styles.actionButtons}>
               <Pressable
                 style={({pressed}) => [pressed && styles.pressedStyle]}
+                hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}
                 onPress={() => openEditModal(item)}>
                 <Text style={styles.editButton}>✏️</Text>
               </Pressable>
               <Pressable
                 style={({pressed}) => [pressed && styles.pressedStyle]}
+                hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}
                 onPress={() => deleteTodo.mutate(item.id)}>
                 <Text style={styles.deleteButton}>🗑️</Text>
               </Pressable>
@@ -415,10 +431,11 @@ const styles = StyleSheet.create({
   },
   editButton: {
     fontSize: widthRatio(18),
-    marginRight: widthRatio(10),
+    margin: widthRatio(5),
   },
   deleteButton: {
     fontSize: widthRatio(18),
+    margin: widthRatio(5),
   },
   buttonContainer: {
     alignItems: 'center',

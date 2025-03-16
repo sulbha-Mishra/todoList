@@ -1,6 +1,7 @@
 import {useQuery, useMutation, useQueryClient} from 'react-query';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import NetInfo from '@react-native-community/netinfo';
+import {ToastAndroid} from 'react-native';
 
 const API_URL = 'https://jsonplaceholder.typicode.com/todos';
 
@@ -20,7 +21,6 @@ export const useTodos = () => {
   const fetchTodos = async (): Promise<Todo[]> => {
     const localTodos = await AsyncStorage.getItem('todos');
     const parsedTodos: Todo[] = localTodos ? JSON.parse(localTodos) : [];
-
     const deletedTaskIds = await AsyncStorage.getItem('deletedTaskIds');
     const parsedDeletedTaskIds: number[] = deletedTaskIds
       ? JSON.parse(deletedTaskIds)
@@ -55,58 +55,82 @@ export const useTodos = () => {
   /**
    * Save a new todo locally (offline-first).
    */
-  const addTodo = useMutation(async (newTodo: Todo) => {
-    const localTodos = await AsyncStorage.getItem('todos');
-    const parsedTodos: Todo[] = localTodos ? JSON.parse(localTodos) : [];
+  const addTodo = useMutation(
+    async (newTodo: Todo) => {
+      const localTodos = await AsyncStorage.getItem('todos');
+      const parsedTodos: Todo[] = localTodos ? JSON.parse(localTodos) : [];
 
-    const updatedTodos = [
-      {...newTodo, isSynced: false}, // Mark as not synced
-      ...parsedTodos,
-    ];
-    await AsyncStorage.setItem('todos', JSON.stringify(updatedTodos));
-    queryClient.invalidateQueries('todos');
-  });
+      const updatedTodos = [
+        {...newTodo, isSynced: false}, // Mark as not synced
+        ...parsedTodos,
+      ];
+      await AsyncStorage.setItem('todos', JSON.stringify(updatedTodos));
+      return updatedTodos;
+    },
+    {
+      onSuccess: updatedTodos => {
+        queryClient.setQueryData<Todo[]>('todos', updatedTodos); // Update cache directly
+      },
+    },
+  );
 
   /**
    * Update an existing todo (edits or toggle completion).
-   */ const updateTodo = useMutation(async (updatedTodo: Todo) => {
-    const localTodos = await AsyncStorage.getItem('todos');
-    const parsedTodos: Todo[] = localTodos ? JSON.parse(localTodos) : [];
+   */
+  const updateTodo = useMutation(
+    async (updatedTodo: Todo) => {
+      const localTodos = await AsyncStorage.getItem('todos');
+      const parsedTodos: Todo[] = localTodos ? JSON.parse(localTodos) : [];
 
-    const updatedTodos = parsedTodos.map(todo =>
-      todo.id === updatedTodo.id
-        ? {...todo, ...updatedTodo, isSynced: false}
-        : todo,
-    );
+      const updatedTodos = parsedTodos.map(todo =>
+        todo.id === updatedTodo.id
+          ? {...todo, ...updatedTodo, isSynced: false}
+          : todo,
+      );
 
-    await AsyncStorage.setItem('todos', JSON.stringify(updatedTodos));
-    queryClient.invalidateQueries('todos');
-  });
+      await AsyncStorage.setItem('todos', JSON.stringify(updatedTodos));
+      return updatedTodos;
+    },
+    {
+      onSuccess: updatedTodos => {
+        queryClient.setQueryData<Todo[]>('todos', updatedTodos); // Directly update the cache
+      },
+    },
+  );
 
   /**
    * Delete a todo and track deleted IDs to prevent re-sync.
    */
-  const deleteTodo = useMutation(async (id: number) => {
-    const localTodos = await AsyncStorage.getItem('todos');
-    const parsedTodos: Todo[] = localTodos ? JSON.parse(localTodos) : [];
-    // Remove the task and save locally
-    const updatedTodos = parsedTodos.filter(todo => todo.id !== id);
-    await AsyncStorage.setItem('todos', JSON.stringify(updatedTodos));
+  const deleteTodo = useMutation(
+    async (id: number) => {
+      const localTodos = await AsyncStorage.getItem('todos');
+      const parsedTodos: Todo[] = localTodos ? JSON.parse(localTodos) : [];
 
-    // Store deleted ID to prevent re-sync from server
-    const deletedTaskIds = await AsyncStorage.getItem('deletedTaskIds');
-    const parsedDeletedTaskIds: number[] = deletedTaskIds
-      ? JSON.parse(deletedTaskIds)
-      : [];
+      // Remove the task and save locally
+      const updatedTodos = parsedTodos.filter(todo => todo.id !== id);
+      await AsyncStorage.setItem('todos', JSON.stringify(updatedTodos));
 
-    const updatedDeletedTaskIds = [...parsedDeletedTaskIds, id];
-    await AsyncStorage.setItem(
-      'deletedTaskIds',
-      JSON.stringify(updatedDeletedTaskIds),
-    );
+      // Store deleted ID to prevent re-sync from server
+      const deletedTaskIds = await AsyncStorage.getItem('deletedTaskIds');
+      const parsedDeletedTaskIds: number[] = deletedTaskIds
+        ? JSON.parse(deletedTaskIds)
+        : [];
 
-    queryClient.invalidateQueries('todos');
-  });
+      const updatedDeletedTaskIds = [...parsedDeletedTaskIds, id];
+      ToastAndroid.show('Task deleted successfully', ToastAndroid.BOTTOM);
+      await AsyncStorage.setItem(
+        'deletedTaskIds',
+        JSON.stringify(updatedDeletedTaskIds),
+      );
+
+      return updatedTodos; // Return the updated list after deletion
+    },
+    {
+      onSuccess: updatedTodos => {
+        queryClient.setQueryData<Todo[]>('todos', updatedTodos); // Update cache directly
+      },
+    },
+  );
 
   /**
    * Toggle a task's completion status.
